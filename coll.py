@@ -21,10 +21,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import EvidenceBank
-from engine import apple, electron
+from engine import apple, electron, web
 
 
 def detect_lane(target: str) -> str:
+    if target.startswith(("http://", "https://")):
+        return "web"
     t = os.path.abspath(target)
     if t.endswith(".asar"):
         return "electron"
@@ -95,8 +97,29 @@ def render(report: dict) -> str:
             out.append("  " + ", ".join(a["contextbridge_exposures"][:40]))
             out.append(f"\n## routes ({len(a.get('routes', []))})")
             out.append("  " + ", ".join(a["routes"][:40]))
+    elif lane == "web":
         if "error" in report:
             out.append(f"\n## error: {report['error']}")
+        else:
+            out.append(f"\n## page: {report.get('title')} (HTTP {report.get('http_status')})")
+            fw = report.get("framework") or {}
+            for name, v in fw.items():
+                ver = v.get("version") if isinstance(v, dict) else None
+                out.append(f"  framework: {name}" + (f" v{ver}" if ver else ""))
+            out.append(f"\n## app bundles analyzed: {report.get('bundles_analyzed')}")
+            out.append(f"  libraries: {', '.join(report.get('libraries', []))}")
+            out.append(f"\n## routes ({len(report.get('routes', []))})")
+            out.append("  " + ", ".join(report["routes"][:40]))
+            out.append(f"\n## api endpoints ({len(report.get('api_endpoints', []))})")
+            out.append("  " + ", ".join(report["api_endpoints"][:40]))
+            out.append(f"\n## auth signals: {', '.join(report.get('auth_signals', []))}")
+            out.append(f"\n## analytics ({len(report.get('analytics', []))})")
+            for a in report.get("analytics", [])[:15]:
+                out.append(f"  - {a}")
+            out.append(f"\n## env config keys ({len(report.get('env_config_keys', []))})")
+            out.append("  " + ", ".join(report["env_config_keys"][:40]))
+            out.append(f"\n## domains ({len(report.get('domains', []))})")
+            out.append("  " + ", ".join(report["domains"][:40]))
 
     return "\n".join(out)
 
@@ -104,7 +127,7 @@ def render(report: dict) -> str:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("target")
-    ap.add_argument("--lane", choices=["auto", "apple", "electron"], default="auto")
+    ap.add_argument("--lane", choices=["auto", "apple", "electron", "web"], default="auto")
     ap.add_argument("--out", default=None,
                     help="evidence output dir (default: coll-out/<basename>)")
     ap.add_argument("--index", action="store_true",
@@ -138,6 +161,8 @@ def main():
 
     if lane == "apple":
         report = apple.inspect_apple(args.target, bank)
+    elif lane == "web":
+        report = web.inspect_web(args.target, bank)
     else:
         report = electron.inspect_electron(args.target, bank)
 
