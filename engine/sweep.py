@@ -22,6 +22,25 @@ def _load_terms(path: str) -> list:
     return json.load(open(path))["terms"]
 
 
+def _words(s: str) -> list:
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", s)   # split camelCase
+    s = re.sub(r"[^A-Za-z0-9]+", " ", s)             # split snake/kebab/dot
+    return [w.lower() for w in s.split() if w]
+
+
+def _kw_matches(kw: str, token: str) -> bool:
+    """Word-aware match: 'board' must NOT match 'keyboard'/'dashboard', but
+    'sidebar' MUST match 'LeftSidebarView' (camelCase boundary)."""
+    kwl = kw.lower().strip()
+    if not kwl:
+        return False
+    if any(c in kwl for c in " -_"):                 # multi-token alias -> normalized substring
+        kwn = re.sub(r"[ \-_]+", "-", kwl)
+        tokn = re.sub(r"[ \-_]+", "-", token.lower())
+        return kwn in tokn
+    return kwl in _words(token)
+
+
 def sweep_index(db_path: str, terms: list, limit: int = 12) -> dict:
     conn = sqlite3.connect(db_path)
     out = {}
@@ -36,10 +55,10 @@ def sweep_index(db_path: str, terms: list, limit: int = 12) -> dict:
             for tbl, col in (("classes", "demangled"), ("members", "name"), ("selectors", "name")):
                 try:
                     for (v,) in conn.execute(
-                        f"SELECT {col} FROM {tbl} WHERE {col} LIKE ? LIMIT ?", (like, limit)
+                        f"SELECT {col} FROM {tbl} WHERE {col} LIKE ? LIMIT ?", (like, limit * 3)
                     ):
                         v = str(v)
-                        if v and len(v) < 90:
+                        if v and len(v) < 90 and _kw_matches(kw, v):
                             hits.add(v)
                 except Exception:
                     pass
@@ -110,7 +129,7 @@ def sweep_js(js_dir: str, terms: list, limit: int = 12, max_files: int = 2000, c
                 s = max(0, m.start() - 30)
                 seg = blob[s:m.end() + 40]
                 for tok in re.findall(r"[A-Za-z0-9_\.\-:]+", seg):
-                    if kw.lower() in tok.lower() and 2 < len(tok) < 80:
+                    if 2 < len(tok) < 80 and _kw_matches(kw, tok):
                         hits.add(tok)
                 if len(hits) >= limit:
                     break
