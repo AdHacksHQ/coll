@@ -107,12 +107,34 @@ def main():
     ap.add_argument("--lane", choices=["auto", "apple", "electron"], default="auto")
     ap.add_argument("--out", default=None,
                     help="evidence output dir (default: coll-out/<basename>)")
+    ap.add_argument("--index", action="store_true",
+                    help="build the ObjC/Swift feature index (apple lane)")
+    ap.add_argument("--find", default=None,
+                    help="query the feature index for a keyword (apple lane)")
+    ap.add_argument("--limit", type=int, default=40,
+                    help="max hits per category for --find")
     args = ap.parse_args()
 
     lane = detect_lane(args.target) if args.lane == "auto" else args.lane
     base = os.path.basename(os.path.abspath(args.target).rstrip("/")) or "target"
     out = args.out or os.path.join("coll-out", base)
     bank = EvidenceBank(out)
+
+    # feature-index mode (apple lane)
+    if lane == "apple" and (args.index or args.find):
+        from engine import apple_v2
+        db = os.path.join(bank.root, "objc-index.db")
+        if not os.path.exists(db):
+            print("# building feature index (first run) ...")
+            print("# index:", json.dumps(apple_v2.index_objc(args.target, db), default=str))
+        if args.find:
+            hits = apple_v2.find(db, args.find, limit=args.limit)
+            print(f"# find '{args.find}' — {len(hits)} hits")
+            for kind, text in hits:
+                print(f"  [{kind}] {text}")
+        else:
+            print(f"# index -> {db}")
+        return
 
     if lane == "apple":
         report = apple.inspect_apple(args.target, bank)
