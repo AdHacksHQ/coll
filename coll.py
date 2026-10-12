@@ -2,11 +2,15 @@
 """Coll — reverse-engineer a feature from an app, our way.
 
 Usage:
-  python3 coll.py <target> [--lane auto|apple|electron] [--out DIR]
+  python3 coll.py <target> [--lane auto|apple|electron|web|linux|windows|unix] [--out DIR]
 
 Lanes:
   apple    — macOS .app / Mach-O (Info.plist, entitlements, symbols, strings)
   electron — Electron/JS bundle (asar, module graph, IPC, routes)
+  web      — web app / SPA surface (frameworks, routes, APIs, analytics)
+  linux    — ELF binaries (identity, arch, NEEDED libs, symbols, strings)
+  windows  — PE binaries (identity, arch, imported DLLs/functions, strings)
+  unix     — generic non-Mach-O Unix binaries (best-effort object scan)
 
 Findings print concisely to stdout; full evidence + a verifiable manifest
 land in --out. Nothing is executed from the target; analysis is static.
@@ -16,12 +20,26 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import EvidenceBank
-from engine import apple, electron, web
+from engine import apple, electron, web, linux, windows, unix
+from engine import run
+
+_OBJECT_RE = re.compile(
+    r"object|executable|shared library|relocatable|archive|core file|COFF|a\.out",
+    re.I,
+)
+
+
+def _file_type(path: str) -> str:
+    if not os.path.isfile(path):
+        return ""
+    rc, out, _, _ = run(["file", "-b", path], timeout=20)
+    return out.decode("utf-8", "replace") if rc == 0 else ""
 
 
 def detect_lane(target: str) -> str:
@@ -36,6 +54,16 @@ def detect_lane(target: str) -> str:
         return "apple"
     if os.path.isdir(t):
         return "electron"
+    # regular file: sniff the container format with `file`
+    ft = _file_type(t)
+    if "ELF" in ft:
+        return "linux"
+    if "PE32" in ft or "MS Windows" in ft:
+        return "windows"
+    if "Mach-O" in ft:
+        return "apple"
+    if _OBJECT_RE.search(ft):
+        return "unix"
     return "apple"
 
 
@@ -120,6 +148,70 @@ def render(report: dict) -> str:
             out.append("  " + ", ".join(report["env_config_keys"][:40]))
             out.append(f"\n## domains ({len(report.get('domains', []))})")
             out.append("  " + ", ".join(report["domains"][:40]))
+    elif lane == "linux":
+        if "error" in report:
+            out.append(f"\n## error: {report['error']}")
+        else:
+            out.append(f"\n## format: {report.get('format')}")
+            if report.get("arch"):
+                out.append(f"  arch: {report['arch']}")
+            if report.get("entry_point"):
+                out.append(f"  entry point: {report['entry_point']}")
+            out.append(f"\n## linked libs ({len(report.get('linked_libs', []))})")
+            out.append("  " + ", ".join(report["linked_libs"][:40]))
+            s = report.get("symbol_surface") or {}
+            out.append(f"\n## symbols: {s.get('symbols', 0)} "
+                       f"(defined={s.get('defined', 0)} undefined={s.get('undefined', 0)} "
+                       f"weak={s.get('weak', 0)})")
+            if s.get("sample"):
+                out.append("  sample: " + ", ".join(s["sample"][:20]))
+            ss = report.get("strings_signal") or {}
+            out.append("\n## strings signal")
+            out.append(f"  URLs: {', '.join(ss.get('urls', [])[:6])}")
+            out.append(f"  API paths: {', '.join(ss.get('api_paths', [])[:10])}")
+            out.append(f"  feature flags: {', '.join(ss.get('feature_flags', [])[:10])}")
+            out.append(f"  library paths: {', '.join(ss.get('library_paths', [])[:12])}")
+    elif lane == "windows":
+        if "error" in report:
+            out.append(f"\n## error: {report['error']}")
+        else:
+            out.append(f"\n## format: {report.get('format')}")
+            if report.get("arch"):
+                out.append(f"  arch: {report['arch']}")
+            if report.get("entry_point"):
+                out.append(f"  entry point: {report['entry_point']}")
+            if report.get("subsystem"):
+                out.append(f"  subsystem: {report['subsystem']}")
+            out.append(f"\n## imported DLLs ({len(report.get('imported_dlls', []))})")
+            out.append("  " + ", ".join(report["imported_dlls"][:40]))
+            out.append(f"\n## imported functions ({report.get('import_count', 0)})")
+            out.append("  " + ", ".join(report.get("imported_symbols", [])[:40]))
+            s = report.get("symbol_surface") or {}
+            out.append(f"\n## symbol table: {s.get('symbols', 0)} ({s.get('note', '')})".rstrip())
+            ss = report.get("strings_signal") or {}
+            out.append("\n## strings signal")
+            out.append(f"  URLs: {', '.join(ss.get('urls', [])[:6])}")
+            out.append(f"  API paths: {', '.join(ss.get('api_paths', [])[:10])}")
+            out.append(f"  feature flags: {', '.join(ss.get('feature_flags', [])[:10])}")
+            out.append(f"  DLL/registry: {', '.join(ss.get('dll_registry', [])[:12])}")
+    elif lane == "unix":
+        if "error" in report:
+            out.append(f"\n## error: {report['error']}")
+        else:
+            out.append(f"\n## format: {report.get('format')}")
+            if report.get("arch"):
+                out.append(f"  arch: {report['arch']}")
+            s = report.get("symbol_surface") or {}
+            out.append(f"\n## symbols: {s.get('symbols', 0)} "
+                       f"(defined={s.get('defined', 0)} undefined={s.get('undefined', 0)})")
+            if s.get("sample"):
+                out.append("  sample: " + ", ".join(s["sample"][:20]))
+            ss = report.get("strings_signal") or {}
+            out.append("\n## strings signal")
+            out.append(f"  URLs: {', '.join(ss.get('urls', [])[:6])}")
+            out.append(f"  API paths: {', '.join(ss.get('api_paths', [])[:10])}")
+            out.append(f"  feature flags: {', '.join(ss.get('feature_flags', [])[:10])}")
+            out.append(f"  library paths: {', '.join(ss.get('library_paths', [])[:12])}")
 
     return "\n".join(out)
 
@@ -127,7 +219,7 @@ def render(report: dict) -> str:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("target")
-    ap.add_argument("--lane", choices=["auto", "apple", "electron", "web"], default="auto")
+    ap.add_argument("--lane", choices=["auto", "apple", "electron", "web", "linux", "windows", "unix"], default="auto")
     ap.add_argument("--out", default=None,
                     help="evidence output dir (default: coll-out/<basename>)")
     ap.add_argument("--index", action="store_true",
@@ -136,12 +228,19 @@ def main():
                     help="query the feature index for a keyword (apple lane)")
     ap.add_argument("--limit", type=int, default=40,
                     help="max hits per category for --find")
+    ap.add_argument("--sweep", default=None,
+                    help="sweep a terms JSON (id+aliases) and print term->hits (any lane)")
     args = ap.parse_args()
 
     lane = detect_lane(args.target) if args.lane == "auto" else args.lane
     base = os.path.basename(os.path.abspath(args.target).rstrip("/")) or "target"
     out = args.out or os.path.join("coll-out", base)
     bank = EvidenceBank(out)
+
+    if args.sweep:
+        from engine import sweep as _sweep
+        print(json.dumps(_sweep.sweep(args.target, args.sweep, out, lane), indent=2, ensure_ascii=False))
+        return
 
     # feature-index mode (apple lane)
     if lane == "apple" and (args.index or args.find):
@@ -163,6 +262,12 @@ def main():
         report = apple.inspect_apple(args.target, bank)
     elif lane == "web":
         report = web.inspect_web(args.target, bank)
+    elif lane == "linux":
+        report = linux.inspect_linux(args.target, bank)
+    elif lane == "windows":
+        report = windows.inspect_windows(args.target, bank)
+    elif lane == "unix":
+        report = unix.inspect_unix(args.target, bank)
     else:
         report = electron.inspect_electron(args.target, bank)
 
