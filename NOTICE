@@ -1,0 +1,8 @@
+NOTICE — provenance (absorption doctrine)
+
+Pattern modeled after `rea-agents` (MIT, github.com/morluto/rea, Marco
+Kazandjieff), studied 2026-10-12 as a reference implementation. What we took:
+the ARCHITECTURAL PATTERN only (agent interface + evidence discipline +
+per-target backends). No code copied. Our implementation is a fresh synthesis —
+Apple-native toolchain, stdlib-only Python orchestrator, estate-native evidence
+contract. The licensed material of rea-agents is not distributed here.
