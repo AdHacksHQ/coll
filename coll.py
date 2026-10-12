@@ -49,8 +49,13 @@ def detect_lane(target: str) -> str:
     if t.endswith(".asar"):
         return "electron"
     if t.endswith(".app") or os.path.exists(os.path.join(t, "Contents")):
-        if os.path.exists(os.path.join(t, "Contents", "Resources", "app.asar")):
-            return "electron"
+        res = os.path.join(t, "Contents", "Resources")
+        if os.path.isdir(res):
+            # unpacked app/ dir (VSCode, Cursor) or any .asar (Obsidian's obsidian.asar)
+            if os.path.isdir(os.path.join(res, "app")):
+                return "electron"
+            if any(f.endswith(".asar") for f in os.listdir(res)):
+                return "electron"
         return "apple"
     if os.path.isdir(t):
         return "electron"
