@@ -1,18 +1,18 @@
-# Coll — reverse-engineer a feature from an app, our way
+# Coll — reverse-engineer a feature from an app
 
 Reverse-engineer the *surface* of any macOS app — native `.app`/Mach-O or
 Electron/JS bundle — into evidence-backed findings an agent can act on. Built
-for the one job Justin keeps hitting: *"I like feature X in app Y — build it
-for me."* This is how Viiy actually looks inside app Y.
+for a common job: *"I like feature X in app Y — build it for me."* This is
+how you actually look inside app Y.
 
-**Not a dependency on REA.** We took REA's *pattern* (agent interface +
-evidence discipline + per-target backends) and synthesized our own:
+**Not a dependency on REA.** This project took REA's *pattern* (agent interface +
+evidence discipline + per-target backends) and synthesized its own:
 
 - **Apple-native, license-free.** Uses the installed free toolchain (`otool`,
   `nm`, `objdump`, `lipo`, `file`, `plutil`, `codesign`, `strings`, `lldb`,
   `xcrun swift-demangle`) — no Hopper/Ghidra/IDA seat needed.
 - **Stdlib-only orchestrator.** Python 3 stdlib, no heavy Node/TS tree. Mirrors
-  the Consumer's law.
+  the sibling project's law.
 - **Evidence, not vibes.** Every finding carries the exact command, a
   byte-pinned digest, and an explicit confidence + limitation.
 
@@ -42,7 +42,7 @@ Concise findings print to stdout; the full evidence + `manifest.json` land in
 - **Static only.** Nothing from the target is executed.
 - **No DRM breaking.** Inspect behavior, not license bypass.
 - **Evidence-backed.** No conclusion without its artifact + reproduction command.
-- **Platform-agnostic contracts** (estate law): the report schema is stable;
+- **Platform-agnostic contracts** (design law): the report schema is stable;
   per-platform backends slot in (Mach-O/Apple, ELF/Linux, PE/Windows) and fail
   closed when a tool is missing.
 
